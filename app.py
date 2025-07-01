@@ -3,10 +3,11 @@ from flask_cors import CORS
 import swisseph as swe
 from datetime import datetime
 
+# Inicialización
 app = Flask(__name__)
-CORS(app)  # Habilita CORS para todos los orígenes (incluye GPTs personalizados)
+CORS(app)  # ← Habilita CORS sin restricciones
 
-# Ruta a efemérides
+# Ruta a efemérides en Render
 EPHE_PATH = "/opt/render/project/src/ephe"
 swe.set_ephe_path(EPHE_PATH)
 
@@ -38,7 +39,6 @@ def jd_to_dt(jd):
 @app.post("/aspect_hits")
 def aspect_hits():
     data = request.get_json(force=True)
-
     bodies   = data["bodies"]
     target   = data["target"]
     aspect   = data.get("aspect", 0)
@@ -77,7 +77,7 @@ def aspect_hits():
 @app.get("/planet_position")
 def planet_position():
     planet_name = request.args.get("planet", "").upper()
-    datetime_str = request.args.get("datetime", "")
+    datetime_str = request.args.get("datetime", "")  # Formato ISO
 
     if not planet_name or not datetime_str:
         return jsonify({"error": "Faltan parámetros: 'planet' y/o 'datetime'"}), 400
@@ -98,11 +98,11 @@ def planet_position():
     speed = xx[3]
     motion = "R" if speed < 0 else "D"
 
-    signo_idx = int(lon // 30)
     signos = [
         "Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo",
         "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"
     ]
+    signo_idx = int(lon // 30)
     grados_en_signo = lon % 30
     deg = int(grados_en_signo)
     min_float = (grados_en_signo - deg) * 60
