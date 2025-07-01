@@ -93,7 +93,7 @@ def planet_position():
 
     jd = swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60.0)
 
-    xx, _ = swe.calc_ut(jd, planet, flag=swe.FLG_SPEED)
+    xx, _ = swe.calc_ut(jd, planet, flags=swe.FLG_SPEED)
     lon = xx[0]
     speed = xx[3]
     signo = int(lon // 30) % 12
