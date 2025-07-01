@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: efemerides-api
+    env: python          # entorno nativo de Render
+    region: frankfurt    # o el que prefieras
+    buildCommand: |
+      pip install -r requirements.txt
+      mkdir -p ephe
+      wget -q https://www.astro.com/ftp/swisseph/ephe/sepl_20.se1 -O ephe/sepl_20.se1
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
