@@ -1,15 +1,14 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-app = Flask(__name__)
-CORS(app)  # ← habilita CORS para todos los orígenes
 import swisseph as swe
 from datetime import datetime
 
-# Ruta a efemérides (.se1) en Render
+app = Flask(__name__)
+CORS(app)  # Habilita CORS para todos los orígenes (incluye GPTs personalizados)
+
+# Ruta a efemérides
 EPHE_PATH = "/opt/render/project/src/ephe"
 swe.set_ephe_path(EPHE_PATH)
-
-app = Flask(__name__)
 
 # ───────────────────────────────
 def hits(body, target_deg, jd0, jd1, aspect=0, orb=0.05, step_d=0.25):
@@ -20,7 +19,7 @@ def hits(body, target_deg, jd0, jd1, aspect=0, orb=0.05, step_d=0.25):
         delta = abs(diff) - (aspect + orb)
         if prev is not None and delta * prev < 0:
             lo, hi = jd - step_d, jd
-            for _ in range(30):  # bisección fina
+            for _ in range(30):
                 mid = 0.5 * (lo + hi)
                 lon_mid = swe.calc_ut(mid, body)[0][0]
                 diff_mid = ((lon_mid - target_deg + 540) % 360) - 180
