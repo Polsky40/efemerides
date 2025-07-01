@@ -1,8 +1,8 @@
 from flask import Flask, request, jsonify
 import swisseph as swe
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# Ruta a efemérides (.se1) en Render
+# Ruta a efemérides (.se1) en Render o local
 EPHE_PATH = "/opt/render/project/src/ephe"
 swe.set_ephe_path(EPHE_PATH)
 
@@ -17,7 +17,7 @@ def hits(body, target_deg, jd0, jd1, aspect=0, orb=0.05, step_d=0.25):
         delta = abs(diff) - (aspect + orb)
         if prev is not None and delta * prev < 0:
             lo, hi = jd - step_d, jd
-            for _ in range(30):  # bisección fina
+            for _ in range(30):  # refinamiento
                 mid = 0.5 * (lo + hi)
                 lon_mid = swe.calc_ut(mid, body)[0][0]
                 diff_mid = ((lon_mid - target_deg + 540) % 360) - 180
@@ -76,7 +76,7 @@ def aspect_hits():
 @app.get("/planet_position")
 def planet_position():
     planet_name = request.args.get("planet", "").upper()
-    datetime_str = request.args.get("datetime", "")  # ISO: 2025-06-02T12:00
+    datetime_str = request.args.get("datetime", "")
 
     if not planet_name or not datetime_str:
         return jsonify({"error": "Faltan parámetros: 'planet' y/o 'datetime'"}), 400
@@ -92,8 +92,11 @@ def planet_position():
         return jsonify({"error": f"Planeta '{planet_name}' no reconocido"}), 400
 
     jd = swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60.0)
-    lon, lat, dist, speed = swe.calc_ut(jd, planet)[0]
-    signo = int(lon // 30)
+
+    xx, _ = swe.calc_ut(jd, planet, flag=swe.FLG_SPEED)
+    lon = xx[0]
+    speed = xx[3]
+    signo = int(lon // 30) % 12
     signos = [
         "Aries", "Tauro", "Géminis", "Cáncer", "Leo", "Virgo",
         "Libra", "Escorpio", "Sagitario", "Capricornio", "Acuario", "Piscis"
