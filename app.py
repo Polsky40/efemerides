@@ -21,21 +21,19 @@ SIGNS = [
 # -----------------------------------------------------------------------------
 
 def _to_julian(dt_iso: str) -> float:
-    """Convierte YYYY-MM-DDTHH:MM a día juliano UT."""
     dt = datetime.datetime.fromisoformat(dt_iso)
     return swe.julday(dt.year, dt.month, dt.day,
                       dt.hour + dt.minute / 60 + dt.second / 3600)
 
 
 def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
-    """Devuelve planeta, signo, posición (grados° minutos′) y movimiento."""
     jd = _to_julian(dt_iso)
     pl_id = getattr(swe, planet_name.upper(), None)
     if pl_id is None:
         raise ValueError(f"Planeta desconocido: {planet_name}")
 
-    (lon, _lat, _dist, spd_lon, *_), _flags = swe.calc_ut(jd, pl_id)
-    lon %= 360  # 0-360°
+    (lon, _lat, _dist, spd_lon, *_), _ = swe.calc_ut(jd, pl_id)
+    lon %= 360
 
     sign_index = int(lon // 30)
     sign = SIGNS[sign_index]
@@ -43,8 +41,6 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
     deg_in_sign = lon % 30
     deg = int(deg_in_sign)
     minutes = int(round((deg_in_sign - deg) * 60))
-
-    # Ajuste de redondeo 60′ → +1° 0′
     if minutes == 60:
         minutes = 0
         deg += 1
@@ -53,37 +49,33 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
             sign_index = (sign_index + 1) % 12
             sign = SIGNS[sign_index]
 
-    position_str = f"{deg:02d}° {minutes:02d}′"
+    position = f"{deg:02d}° {minutes:02d}′"
     motion = "R" if spd_lon < 0 else "D"
 
     return {
         "planet": planet_name.upper(),
         "sign": sign,
-        "position": position_str,
+        "position": position,
         "motion": motion,
     }
 
 # -----------------------------------------------------------------------------
-# /planet_position
+# ROUTES
 # -----------------------------------------------------------------------------
 
-@app.get("/planet_position")
+@app.route("/planet_position", methods=["GET"])
 def planet_position():
     planet = request.args.get("planet")
     dt_iso = request.args.get("datetime")
     if not planet or not dt_iso:
         return jsonify(error="Faltan parámetros 'planet' y/o 'datetime'"), 400
     try:
-        data = _planet_data(planet, dt_iso)
-        return jsonify(data)
+        return jsonify(_planet_data(planet, dt_iso))
     except Exception as exc:
         return jsonify(error=str(exc)), 400
 
-# -----------------------------------------------------------------------------
-# /aspect_hits  (sin cambios, mantiene compatibilidad con nuevo motion)
-# -----------------------------------------------------------------------------
 
-@app.post("/aspect_hits")
+@app.route("/aspect_hits", methods=["POST"])
 def aspect_hits():
     data: Dict[str, Any] = request.get_json(force=True, silent=True) or {}
 
@@ -95,13 +87,13 @@ def aspect_hits():
     natal_chart: Dict[str, float] = data.get("natal_chart", {})
 
     if not isinstance(bodies, list) or not bodies:
-        return jsonify(error="'bodies' debe ser lista y no puede estar vacía"), 400
+        return jsonify(error="'bodies' debe ser lista"), 400
     if target_raw is None or jd_start_s is None or jd_end_s is None:
         return jsonify(error="'target', 'jd_start' y 'jd_end' son obligatorios"), 400
 
-    targets: List[Union[str, float, int]] = target_raw if isinstance(target_raw, list) else [target_raw]
-    aspect_list: List[float] = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
-    aspect_list = [float(a) for a in aspect_list]
+    targets = target_raw if isinstance(target_raw, list) else [target_raw]
+    aspects = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
+    aspects = [float(a) for a in aspects]
 
     try:
         jd_start = _to_julian(jd_start_s + "T00:00")
@@ -109,8 +101,7 @@ def aspect_hits():
     except Exception as exc:
         return jsonify(error=f"Fecha inválida: {exc}"), 400
 
-    hits: List[Dict[str, Any]] = []
-
+    hits = []
     for t in targets:
         if isinstance(t, (int, float)):
             t_lon = float(t) % 360
@@ -128,11 +119,11 @@ def aspect_hits():
 
             jd_curr = jd_start
             while jd_curr <= jd_end:
-                (lon, _lat, _dist, spd_lon, *_), _flags = swe.calc_ut(jd_curr, pl_id)
+                (lon, _lat, _dist, spd_lon, *_), _ = swe.calc_ut(jd_curr, pl_id)
                 lon %= 360
                 delta = (lon - t_lon + 360) % 360
 
-                for asp in aspect_list:
+                for asp in aspects:
                     diff = min(abs(delta - asp), 360 - abs(delta - asp))
                     if diff <= orb:
                         y, m, d, hr, mi, se = swe.revjul(jd_curr)
