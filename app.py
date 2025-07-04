@@ -8,31 +8,41 @@ app = Flask(__name__)
 CORS(app)
 
 # -----------------------------------------------------------------------------
-# CONFIGURACIÓN
+# CONFIGURACIÓN GENERAL
 # -----------------------------------------------------------------------------
-swe.set_ephe_path("./ephe")  # Update to path where .se1/.se2 live
+swe.set_ephe_path("./ephe")  # Carpeta donde residen los ficheros .se1/.se2
+SIGNS = [
+    "ARIES", "TAURUS", "GEMINI", "CANCER", "LEO", "VIRGO",
+    "LIBRA", "SCORPIO", "SAGITTARIUS", "CAPRICORNUS", "AQUARIUS", "PISCES"
+]
 
 # -----------------------------------------------------------------------------
 # UTILIDADES
 # -----------------------------------------------------------------------------
 
 def _to_julian(dt_iso: str) -> float:
+    """Convierte una fecha ISO (YYYY-MM-DDTHH:MM) a día juliano UT"""
     dt = datetime.datetime.fromisoformat(dt_iso)
     return swe.julday(dt.year, dt.month, dt.day,
                       dt.hour + dt.minute / 60 + dt.second / 3600)
 
 
-def _planet_longitude(planet_name: str, dt_iso: str) -> float:
+def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
+    """Devuelve longitud, signo y movimiento (D/R) de un planeta"""
     jd = _to_julian(dt_iso)
     pl_id = getattr(swe, planet_name.upper(), None)
     if pl_id is None:
         raise ValueError(f"Planeta desconocido: {planet_name}")
-    (lon, _lat, _dist, *_), _flags = swe.calc_ut(jd, pl_id)
-    return lon % 360
+
+    (lon, _lat, _dist, spd_lon, *_), _flags = swe.calc_ut(jd, pl_id)
+    lon %= 360
+    sign = SIGNS[int(lon // 30)]
+    motion = "R" if spd_lon < 0 else "D"
+    return {"planet": planet_name.upper(), "longitude": lon, "sign": sign, "motion": motion}
 
 
 # -----------------------------------------------------------------------------
-# /planet_position
+# /planet_position  (GET)
 # -----------------------------------------------------------------------------
 
 @app.get("/planet_position")
@@ -40,16 +50,16 @@ def planet_position():
     planet = request.args.get("planet")
     dt_iso = request.args.get("datetime")
     if not planet or not dt_iso:
-        return jsonify(error="Faltan parámetros"), 400
+        return jsonify(error="Faltan parámetros 'planet' y/o 'datetime'"), 400
     try:
-        lon = _planet_longitude(planet, dt_iso)
-        return jsonify(planet=planet.upper(), longitude=lon)
+        data = _planet_data(planet, dt_iso)
+        return jsonify(data)
     except Exception as exc:
         return jsonify(error=str(exc)), 400
 
 
 # -----------------------------------------------------------------------------
-# /aspect_hits – soporta listas en target y aspect
+# /aspect_hits  (POST) – compatible con OpenAPI + listas opcionales
 # -----------------------------------------------------------------------------
 
 @app.post("/aspect_hits")
@@ -64,38 +74,43 @@ def aspect_hits():
     natal_chart: Dict[str, float] = data.get("natal_chart", {})
 
     if not isinstance(bodies, list) or not bodies:
-        return jsonify(error="bodies debe ser lista"), 400
+        return jsonify(error="'bodies' debe ser lista y no puede estar vacía"), 400
     if target_raw is None or jd_start_s is None or jd_end_s is None:
-        return jsonify(error="target, jd_start y jd_end son obligatorios"), 400
+        return jsonify(error="'target', 'jd_start' y 'jd_end' son obligatorios"), 400
 
-    targets = target_raw if isinstance(target_raw, list) else [target_raw]
-    aspect_list = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
+    # Normaliza target y aspect para permitir tanto valor único como lista
+    targets: List[Union[str, float, int]] = target_raw if isinstance(target_raw, list) else [target_raw]
+    aspect_list: List[float] = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
     aspect_list = [float(a) for a in aspect_list]
 
-    jd_start = _to_julian(jd_start_s + "T00:00")
-    jd_end = _to_julian(jd_end_s + "T00:00")
+    try:
+        jd_start = _to_julian(jd_start_s + "T00:00")
+        jd_end = _to_julian(jd_end_s + "T00:00")
+    except Exception as exc:
+        return jsonify(error=f"Fecha inválida: {exc}"), 400
 
     hits: List[Dict[str, Any]] = []
 
     for t in targets:
-        # obtengo la longitud del target
+        # longitud absoluta del target
         if isinstance(t, (int, float)):
             t_lon = float(t) % 360
         elif isinstance(t, str):
             t_lon = natal_chart.get(t.upper())
             if t_lon is None:
-                continue
+                continue  # nombre sin posición → se omite
         else:
             continue
 
         for body in bodies:
             pl_id = getattr(swe, body.upper(), None)
             if pl_id is None:
-                continue
+                continue  # planeta inválido
 
             jd_curr = jd_start
             while jd_curr <= jd_end:
-                (lon, _lat, _dist, *_), _flags = swe.calc_ut(jd_curr, pl_id)
+                (lon, _lat, _dist, spd_lon, *_), _flags = swe.calc_ut(jd_curr, pl_id)
+                lon %= 360
                 delta = (lon - t_lon + 360) % 360
 
                 for asp in aspect_list:
@@ -105,17 +120,17 @@ def aspect_hits():
                         ts = f"{y:04d}-{m:02d}-{d:02d}T{int(hr):02d}:{int(mi):02d}Z"
                         hits.append({
                             "planet": body.upper(),
-                            "target": t,
-                            "angle": asp,
-                            "orb": round(diff, 4),
                             "utc": ts,
+                            "motion": "R" if spd_lon < 0 else "D",
                         })
-                        break  # evita duplicados en el mismo día
+                        break  # no repite hits para el mismo día
                 jd_curr += 1
 
     return jsonify(hits)
 
 
+# -----------------------------------------------------------------------------
+# MAIN
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
