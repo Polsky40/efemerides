@@ -141,3 +141,7 @@ def aspect_hits():
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
+
+@app.route(\"/\")
+def index():
+    return \"Swiss Ephemeris API viva 🪐 — rutas: /planet_position, /aspect_hits\", 200
