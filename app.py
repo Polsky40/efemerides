@@ -10,7 +10,7 @@ CORS(app)
 # -----------------------------------------------------------------------------
 # CONFIGURACIÓN GENERAL
 # -----------------------------------------------------------------------------
-swe.set_ephe_path("./ephe")  # Carpeta donde están los archivos .se1 / .se2
+swe.set_ephe_path("./ephe")
 SIGNS = [
     "ARIES", "TAURUS", "GEMINI", "CANCER", "LEO", "VIRGO",
     "LIBRA", "SCORPIO", "SAGITTARIUS", "CAPRICORNUS", "AQUARIUS", "PISCES"
@@ -22,8 +22,7 @@ SIGNS = [
 
 def _to_julian(dt_iso: str) -> float:
     dt = datetime.datetime.fromisoformat(dt_iso)
-    return swe.julday(dt.year, dt.month, dt.day,
-                      dt.hour + dt.minute / 60 + dt.second / 3600)
+    return swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60 + dt.second / 3600)
 
 
 def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
@@ -34,7 +33,6 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
 
     (lon, _lat, _dist, spd_lon, *_), _ = swe.calc_ut(jd, pl_id)
     lon %= 360
-
     sign_index = int(lon // 30)
     sign = SIGNS[sign_index]
 
@@ -42,21 +40,16 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
     deg = int(deg_in_sign)
     minutes = int(round((deg_in_sign - deg) * 60))
     if minutes == 60:
-        minutes = 0
-        deg += 1
+        minutes, deg = 0, deg + 1
         if deg == 30:
             deg = 0
-            sign_index = (sign_index + 1) % 12
-            sign = SIGNS[sign_index]
-
-    position = f"{deg:02d}° {minutes:02d}′"
-    motion = "R" if spd_lon < 0 else "D"
+            sign = SIGNS[(sign_index + 1) % 12]
 
     return {
         "planet": planet_name.upper(),
         "sign": sign,
-        "position": position,
-        "motion": motion,
+        "position": f"{deg:02d}° {minutes:02d}′",
+        "motion": "R" if spd_lon < 0 else "D",
     }
 
 # -----------------------------------------------------------------------------
@@ -65,7 +58,7 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
 
 @app.route("/")
 def index():
-    return "Swiss Ephemeris API viva 🪐 — rutas: /planet_position, /aspect_hits", 200
+    return "Swiss Ephemeris API – rutas: /planet_position, /aspect_hits", 200
 
 
 @app.route("/planet_position", methods=["GET"])
@@ -73,7 +66,7 @@ def planet_position():
     planet = request.args.get("planet")
     dt_iso = request.args.get("datetime")
     if not planet or not dt_iso:
-        return jsonify(error="Faltan parámetros 'planet' y/o 'datetime'"), 400
+        return jsonify(error="Faltan parámetros"), 400
     try:
         return jsonify(_planet_data(planet, dt_iso))
     except Exception as exc:
@@ -100,11 +93,8 @@ def aspect_hits():
     aspects = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
     aspects = [float(a) for a in aspects]
 
-    try:
-        jd_start = _to_julian(jd_start_s + "T00:00")
-        jd_end = _to_julian(jd_end_s + "T00:00")
-    except Exception as exc:
-        return jsonify(error=f"Fecha inválida: {exc}"), 400
+    jd_start = _to_julian(jd_start_s + "T00:00")
+    jd_end = _to_julian(jd_end_s + "T00:00")
 
     hits = []
     for t in targets:
@@ -131,8 +121,10 @@ def aspect_hits():
                 for asp in aspects:
                     diff = min(abs(delta - asp), 360 - abs(delta - asp))
                     if diff <= orb:
-                        y, m, d, hr, mi, se = swe.revjul(jd_curr)
-                        ts = f"{y:04d}-{m:02d}-{d:02d}T{int(hr):02d}:{int(mi):02d}Z"
+                        y, m, d, ut = swe.revjul(jd_curr)  # devuelve 4 valores en PySWisseph
+                        hr = int(ut)
+                        mi = int(round((ut - hr) * 60))
+                        ts = f"{y:04d}-{m:02d}-{d:02d}T{hr:02d}:{mi:02d}Z"
                         hits.append({
                             "planet": body.upper(),
                             "utc": ts,
