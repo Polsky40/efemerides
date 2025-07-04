@@ -10,7 +10,7 @@ CORS(app)
 # -----------------------------------------------------------------------------
 # CONFIGURACIÓN GENERAL
 # -----------------------------------------------------------------------------
-swe.set_ephe_path("./ephe")  # Carpeta donde residen los ficheros .se1/.se2
+swe.set_ephe_path("./ephe")  # Carpeta donde están los archivos .se1 / .se2
 SIGNS = [
     "ARIES", "TAURUS", "GEMINI", "CANCER", "LEO", "VIRGO",
     "LIBRA", "SCORPIO", "SAGITTARIUS", "CAPRICORNUS", "AQUARIUS", "PISCES"
@@ -21,28 +21,50 @@ SIGNS = [
 # -----------------------------------------------------------------------------
 
 def _to_julian(dt_iso: str) -> float:
-    """Convierte una fecha ISO (YYYY-MM-DDTHH:MM) a día juliano UT"""
+    """Convierte YYYY-MM-DDTHH:MM a día juliano UT."""
     dt = datetime.datetime.fromisoformat(dt_iso)
     return swe.julday(dt.year, dt.month, dt.day,
                       dt.hour + dt.minute / 60 + dt.second / 3600)
 
 
 def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
-    """Devuelve longitud, signo y movimiento (D/R) de un planeta"""
+    """Devuelve planeta, signo, posición (grados° minutos′) y movimiento."""
     jd = _to_julian(dt_iso)
     pl_id = getattr(swe, planet_name.upper(), None)
     if pl_id is None:
         raise ValueError(f"Planeta desconocido: {planet_name}")
 
     (lon, _lat, _dist, spd_lon, *_), _flags = swe.calc_ut(jd, pl_id)
-    lon %= 360
-    sign = SIGNS[int(lon // 30)]
-    motion = "R" if spd_lon < 0 else "D"
-    return {"planet": planet_name.upper(), "longitude": lon, "sign": sign, "motion": motion}
+    lon %= 360  # 0-360°
 
+    sign_index = int(lon // 30)
+    sign = SIGNS[sign_index]
+
+    deg_in_sign = lon % 30
+    deg = int(deg_in_sign)
+    minutes = int(round((deg_in_sign - deg) * 60))
+
+    # Ajuste de redondeo 60′ → +1° 0′
+    if minutes == 60:
+        minutes = 0
+        deg += 1
+        if deg == 30:
+            deg = 0
+            sign_index = (sign_index + 1) % 12
+            sign = SIGNS[sign_index]
+
+    position_str = f"{deg:02d}° {minutes:02d}′"
+    motion = "R" if spd_lon < 0 else "D"
+
+    return {
+        "planet": planet_name.upper(),
+        "sign": sign,
+        "position": position_str,
+        "motion": motion,
+    }
 
 # -----------------------------------------------------------------------------
-# /planet_position  (GET)
+# /planet_position
 # -----------------------------------------------------------------------------
 
 @app.get("/planet_position")
@@ -57,9 +79,8 @@ def planet_position():
     except Exception as exc:
         return jsonify(error=str(exc)), 400
 
-
 # -----------------------------------------------------------------------------
-# /aspect_hits  (POST) – compatible con OpenAPI + listas opcionales
+# /aspect_hits  (sin cambios, mantiene compatibilidad con nuevo motion)
 # -----------------------------------------------------------------------------
 
 @app.post("/aspect_hits")
@@ -78,7 +99,6 @@ def aspect_hits():
     if target_raw is None or jd_start_s is None or jd_end_s is None:
         return jsonify(error="'target', 'jd_start' y 'jd_end' son obligatorios"), 400
 
-    # Normaliza target y aspect para permitir tanto valor único como lista
     targets: List[Union[str, float, int]] = target_raw if isinstance(target_raw, list) else [target_raw]
     aspect_list: List[float] = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
     aspect_list = [float(a) for a in aspect_list]
@@ -92,20 +112,19 @@ def aspect_hits():
     hits: List[Dict[str, Any]] = []
 
     for t in targets:
-        # longitud absoluta del target
         if isinstance(t, (int, float)):
             t_lon = float(t) % 360
         elif isinstance(t, str):
             t_lon = natal_chart.get(t.upper())
             if t_lon is None:
-                continue  # nombre sin posición → se omite
+                continue
         else:
             continue
 
         for body in bodies:
             pl_id = getattr(swe, body.upper(), None)
             if pl_id is None:
-                continue  # planeta inválido
+                continue
 
             jd_curr = jd_start
             while jd_curr <= jd_end:
@@ -123,14 +142,11 @@ def aspect_hits():
                             "utc": ts,
                             "motion": "R" if spd_lon < 0 else "D",
                         })
-                        break  # no repite hits para el mismo día
+                        break
                 jd_curr += 1
 
     return jsonify(hits)
 
-
-# -----------------------------------------------------------------------------
-# MAIN
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
