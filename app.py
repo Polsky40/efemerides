@@ -63,6 +63,11 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
 # ROUTES
 # -----------------------------------------------------------------------------
 
+@app.route("/")
+def index():
+    return "Swiss Ephemeris API viva 🪐 — rutas: /planet_position, /aspect_hits", 200
+
+
 @app.route("/planet_position", methods=["GET"])
 def planet_position():
     planet = request.args.get("planet")
@@ -141,7 +146,3 @@ def aspect_hits():
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=False)
-
-@app.route(\"/\")
-def index():
-    return \"Swiss Ephemeris API viva 🪐 — rutas: /planet_position, /aspect_hits\", 200
