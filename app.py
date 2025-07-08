@@ -10,7 +10,7 @@ CORS(app)
 # -----------------------------------------------------------------------------
 # CONFIGURACIÓN GENERAL
 # -----------------------------------------------------------------------------
-swe.set_ephe_path("./ephe")
+swe.set_ephe_path("./ephe")          # carpeta con los archivos .se1/.se2
 SIGNS = [
     "ARIES", "TAURUS", "GEMINI", "CANCER", "LEO", "VIRGO",
     "LIBRA", "SCORPIO", "SAGITTARIUS", "CAPRICORNUS", "AQUARIUS", "PISCES"
@@ -19,10 +19,12 @@ SIGNS = [
 # -----------------------------------------------------------------------------
 # UTILIDADES
 # -----------------------------------------------------------------------------
-
 def _to_julian(dt_iso: str) -> float:
     dt = datetime.datetime.fromisoformat(dt_iso)
-    return swe.julday(dt.year, dt.month, dt.day, dt.hour + dt.minute / 60 + dt.second / 3600)
+    return swe.julday(
+        dt.year, dt.month, dt.day,
+        dt.hour + dt.minute / 60 + dt.second / 3600
+    )
 
 
 def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
@@ -33,13 +35,14 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
 
     (lon, _lat, _dist, spd_lon, *_), _ = swe.calc_ut(jd, pl_id)
     lon %= 360
-    sign_index = int(lon // 30)
+
+    sign_index = int(lon // 30)               # 0-11
     sign = SIGNS[sign_index]
 
     deg_in_sign = lon % 30
     deg = int(deg_in_sign)
     minutes = int(round((deg_in_sign - deg) * 60))
-    if minutes == 60:
+    if minutes == 60:                         # ajuste de redondeo
         minutes, deg = 0, deg + 1
         if deg == 30:
             deg = 0
@@ -55,7 +58,6 @@ def _planet_data(planet_name: str, dt_iso: str) -> Dict[str, Any]:
 # -----------------------------------------------------------------------------
 # ROUTES
 # -----------------------------------------------------------------------------
-
 @app.route("/")
 def index():
     return "Swiss Ephemeris API – rutas: /planet_position, /aspect_hits", 200
@@ -81,7 +83,8 @@ def aspect_hits():
     target_raw = data.get("target")
     aspect_raw = data.get("aspect", 0)
     orb = float(data.get("orb", 0.05))
-    jd_start_s, jd_end_s = data.get("jd_start"), data.get("jd_end")
+    jd_start_s = data.get("jd_start")
+    jd_end_s = data.get("jd_end")
     natal_chart: Dict[str, float] = data.get("natal_chart", {})
 
     if not isinstance(bodies, list) or not bodies:
@@ -89,18 +92,21 @@ def aspect_hits():
     if target_raw is None or jd_start_s is None or jd_end_s is None:
         return jsonify(error="'target', 'jd_start' y 'jd_end' son obligatorios"), 400
 
+    # normaliza target(s)
     targets = target_raw if isinstance(target_raw, list) else [target_raw]
+
+    # normaliza aspect(s)  ←  FIX
     if isinstance(aspect_raw, list):
-    aspects = [float(a) for a in aspect_raw]
-else:
-    aspects = [float(aspect_raw)]
-    aspects = [float(a) for a in aspects]
+        aspects = [float(a) for a in aspect_raw]
+    else:
+        aspects = [float(aspect_raw)]
 
     jd_start = _to_julian(jd_start_s + "T00:00")
     jd_end = _to_julian(jd_end_s + "T00:00")
 
     hits = []
     for t in targets:
+        # longitud del target
         if isinstance(t, (int, float)):
             t_lon = float(t) % 360
         elif isinstance(t, str):
@@ -124,7 +130,7 @@ else:
                 for asp in aspects:
                     diff = min(abs(delta - asp), 360 - abs(delta - asp))
                     if diff <= orb:
-                        y, m, d, ut = swe.revjul(jd_curr)  # devuelve 4 valores en PySWisseph
+                        y, m, d, ut = swe.revjul(jd_curr)   # 4 valores
                         hr = int(ut)
                         mi = int(round((ut - hr) * 60))
                         ts = f"{y:04d}-{m:02d}-{d:02d}T{hr:02d}:{mi:02d}Z"
