@@ -140,7 +140,7 @@ def aspect_hits():
                             "motion": "R" if spd_lon < 0 else "D",
                         })
                         break
-                jd_curr += 1
+                jd_curr += 1/24       # paso horario
 
     return jsonify(hits)
 
