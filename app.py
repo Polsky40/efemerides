@@ -90,7 +90,10 @@ def aspect_hits():
         return jsonify(error="'target', 'jd_start' y 'jd_end' son obligatorios"), 400
 
     targets = target_raw if isinstance(target_raw, list) else [target_raw]
-    aspects = aspect_raw if isinstance(aspect_raw, list) else [aspect_raw]
+    if isinstance(aspect_raw, list):
+    aspects = [float(a) for a in aspect_raw]
+else:
+    aspects = [float(aspect_raw)]
     aspects = [float(a) for a in aspects]
 
     jd_start = _to_julian(jd_start_s + "T00:00")
